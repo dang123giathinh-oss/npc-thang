@@ -3,7 +3,7 @@ import requests
 import os
 
 app = Flask(__name__)
-GROQ_API_KEY = ""
+GROQ_API_KEY = "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"
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -19,7 +19,7 @@ def chat():
         payload = {
             "model": "llama-3.1-8b-instant",
             "messages": [
-                {"role": "system", "content": "Bạn là NPC GenZ Thăng. Trả lời SIÊU NGẮN, tối đa 1 câu, như bạn bè."},
+                {"role": "system", "content": "Bạn là NPC GenZ Thăng. Trả lời SIÊU NGẮN gọn, tối đa 1 câu, như bạn bè."},
                 {"role": "user", "content": msg}
             ],
             "max_tokens": 30,
@@ -30,7 +30,7 @@ def chat():
             "https://api.groq.com/openai/v1/chat/completions",
             headers=headers,
             json=payload,
-            timeout=10
+            timeout=30  # Tăng timeout lên 30s
         )
         
         if r.status_code == 200:
