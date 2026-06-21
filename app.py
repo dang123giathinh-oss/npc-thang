@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
 import os
-import time
 
 app = Flask(__name__)
+CORS(app)  # <--- THÊM DÒNG NÀY ĐỂ BẬT CORS
+
 GROQ_API_KEY = "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"
 
 @app.route('/chat', methods=['POST'])
@@ -13,7 +15,7 @@ def chat():
         msg = data.get('message', '')
         
         if not msg:
-            return jsonify({"reply": "Bạn nói gì thế?"})
+            return jsonify({"reply": "Nói gì thế bro?"})
         
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -23,7 +25,7 @@ def chat():
         payload = {
             "model": "llama-3.1-8b-instant",
             "messages": [
-                {"role": "system", "content": "Bạn là NPC GenZ Thăng. Trả lời SIÊU NGẮN gọn, tối đa 1 câu, như bạn bè. KHÔNG BAO GIỜ trả lời dài dòng."},
+                {"role": "system", "content": "Bạn là NPC GenZ Thăng. Trả lời SIÊU NGẮN gọn, tối đa 1 câu, như bạn bè."},
                 {"role": "user", "content": msg}
             ],
             "max_tokens": 30,
