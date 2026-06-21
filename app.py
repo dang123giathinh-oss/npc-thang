@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import requests
 import os
+import time
 
 app = Flask(__name__)
 GROQ_API_KEY = "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"
@@ -11,6 +12,9 @@ def chat():
         data = request.json
         msg = data.get('message', '')
         
+        if not msg:
+            return jsonify({"reply": "Bạn nói gì thế?"})
+        
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
@@ -19,7 +23,7 @@ def chat():
         payload = {
             "model": "llama-3.1-8b-instant",
             "messages": [
-                {"role": "system", "content": "Bạn là NPC GenZ Thăng. Trả lời SIÊU NGẮN gọn, tối đa 1 câu, như bạn bè."},
+                {"role": "system", "content": "Bạn là NPC GenZ Thăng. Trả lời SIÊU NGẮN gọn, tối đa 1 câu, như bạn bè. KHÔNG BAO GIỜ trả lời dài dòng."},
                 {"role": "user", "content": msg}
             ],
             "max_tokens": 30,
@@ -30,7 +34,7 @@ def chat():
             "https://api.groq.com/openai/v1/chat/completions",
             headers=headers,
             json=payload,
-            timeout=30  # Tăng timeout lên 30s
+            timeout=10
         )
         
         if r.status_code == 200:
@@ -45,6 +49,10 @@ def chat():
 @app.route('/ping')
 def ping():
     return "OK"
+
+@app.route('/')
+def home():
+    return "NPC Thăng Server - Đang chạy!"
 
 if __name__ == '__main__':
     app.run()
