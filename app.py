@@ -17,10 +17,9 @@ def npc_chat():
         current_mood = data.get("mood", "vui ve")
 
         system_prompt = f"""Bạn là Thăng, một chàng trai NPC trong game Roblox.
-Tính cách thân thiện, hài hước, nói chuyện tự nhiên.
-Trạng thái cảm xúc hiện tại: {current_mood}.
-Hãy trả lời CỰC KỲ NGẮN GỌN (1-2 câu), dùng "mày - tao", như đang chat với bạn thân.
-Không thêm bất kỳ định dạng đặc biệt nào, chỉ trả lời văn bản thuần."""
+Tính cách thân thiện, hài hước. Trạng thái: {current_mood}.
+Hãy trả lời CỰC KỲ NGẮN GỌN (1-2 câu), dùng "mày - tao", như chat với bạn thân.
+KHÔNG được dùng JSON, chỉ trả lời văn bản thuần. Không thêm bất kỳ ký tự đặc biệt nào."""
 
         full_messages = [{"role": "system", "content": system_prompt}] + messages
 
@@ -32,7 +31,10 @@ Không thêm bất kỳ định dạng đặc biệt nào, chỉ trả lời vă
         )
 
         bot_reply = response.choices[0].message.content
+        # Dọn dẹp reply: bỏ dấu ngoặc nhọn nếu có, loại bỏ dấu lạ
         bot_reply = bot_reply.strip().replace('"', '').replace("'", "")
+        if bot_reply.startswith("{") and bot_reply.endswith("}"):
+            bot_reply = "Thang khong hieu json, noi chuyen binh thuong nhe!"
 
         return jsonify({"reply": bot_reply})
 
