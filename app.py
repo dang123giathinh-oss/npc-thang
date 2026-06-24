@@ -1,93 +1,115 @@
 import os
 import json
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from groq import Groq
-from dotenv import load_dotenv
 
-load_dotenv()
+# Khởi tạo ứng dụng FastAPI
+app = FastAPI()
 
-app = Flask(__name__)
-CORS(app)
+# Cấu hình CORS để Roblox kết nối mượt mà không bị chặn
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+# Khởi tạo Groq Client (Lấy API Key từ Environment Variable của Render)
+# Tên biến trên Render mày cấu hình là: GROQ_API_KEY
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-@app.route('/')
-def home():
-    return "Bộ não AI tối cao 8 hướng đang hoạt động!", 200
+# Định dạng dữ liệu nhận vào từ Roblox NPC
+class NPCData(BaseModel):
+    trigger: str
+    environment: dict
+    current_state: str
+    extra: str = ""
 
-@app.route('/api/npc', methods=['POST'])
-def npc_brain():
+# =================================================================
+# 🔥 ENDPOINT PING: Vào trình duyệt gõ https://npc-thang-1.onrender.com/ping
+# =================================================================
+@app.get("/ping")
+async def ping():
+    return {
+        "status": "ok",
+        "message": "Server đang sống nhăn răng! Kết nối thành công rồi nhé bro."
+    }
+
+# =================================================================
+# ENDPOINT CHÍNH CHỨA BỘ NÃO AI CỦA NPC (POST)
+# =================================================================
+@app.post("/api/npc")
+async def npc_control(data: NPCData):
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No JSON payload received"}), 400
-
-        trigger = data.get("trigger", "explore")
-        environment = data.get("environment", {})
-        current_state = data.get("current_state", "Idle")
-        extra = data.get("extra", "")
-
-        # Xử lý chuỗi thông số cảm biến không gian 8 hướng hoàn chỉnh (Yêu cầu 3)
+        # Chuẩn hóa thông số cảm biến không gian 8 hướng
+        env = data.environment
         env_description = (
-            f"Chính diện trước: {environment.get('forward')}m, "
-            f"Chéo trước-Phải (45°): {environment.get('forward_right')}m, "
-            f"Chính phải (90°): {environment.get('right')}m, "
-            f"Chéo sau-Phải (135°): {environment.get('backward_right')}m, "
-            f"Chính sau (180°): {environment.get('backward')}m, "
-            f"Chéo sau-Trái (225°): {environment.get('backward_left')}m, "
-            f"Chính trái (270°): {environment.get('left')}m, "
-            f"Chéo trước-Trái (315°): {environment.get('forward_left')}m."
+            f"Chính diện trước: {env.get('Forward')}m, "
+            f"Chéo trước-Phải (45°): {env.get('ForwardRight')}m, "
+            f"Chính phải (90°): {env.get('Right')}m, "
+            f"Chéo sau-Phải (135°): {env.get('BackwardRight')}m, "
+            f"Chính sau (180°): {env.get('Backward')}m, "
+            f"Chéo sau-Trái (225°): {env.get('BackwardLeft')}m, "
+            f"Chính trái (270°): {env.get('Left')}m, "
+            f"Chéo trước-Trái (315°): {env.get('ForwardLeft')}m."
         )
 
-        # Cập nhật System Prompt dạy AI tư duy không gian góc chéo nhạy bén
-        system_prompt = (
-            "Bạn là bộ não tối cao điều khiển một NPC thông minh tên Thắng trong game Roblox. "
-            "Nhiệm vụ của bạn là phân tích dữ liệu khoảng cách vách tường từ cảm biến 8 hướng xung quanh để đưa ra quyết định di chuyển tối ưu nhất.\n\n"
-            "QUY TẮC DI CHUYỂN TOÀN DIỆN:\n"
-            "1. Nếu hướng nào có khoảng cách vật cản quá ngắn (< 4.0m), TUYỆT ĐỐI không cho NPC đi hướng đó.\n"
-            "2. Hãy xem xét kỹ các hướng chéo (ForwardRight, ForwardLeft, BackwardRight, BackwardLeft). Đôi khi rẽ góc chéo 45 độ giúp né tường mượt mà hơn rẽ vuông góc.\n"
-            "3. Luôn luôn ưu tiên chọn 'turn_direction' về hướng có khoảng cách mét lớn nhất, trống trải nhất.\n"
-            "4. Nếu bị kẹt cứng (trigger = 'stuck'), hành động phải là 'Escape' và chọn turn_direction lùi lại (Backward) hoặc bẻ lái gấp sang hướng có khoảng cách thoáng nhất.\n\n"
-            "BẠN PHẢI TRẢ VỀ KẾT QUẢ DUY NHẤT DƯỚI ĐỊNH DẠNG JSON SAU (Không viết lời giải thích, không thừa ký tự ngoài JSON):\n"
-            "{\n"
-            '  "reply": "Lời thoại ngắn gọn, cục súc hoặc hài hước phù hợp hoàn cảnh hiện tại",\n'
-            '  "action": "Explore hoặc Escape hoặc Idle",\n'
-            '  "turn_direction": "Forward hoặc Backward hoặc Left hoặc Right hoặc ForwardRight hoặc ForwardLeft hoặc BackwardRight hoặc BackwardLeft"\n'
-            "}"
-        )
+        # PROMPT CHUẨN: Sử dụng dấu 3 nháy kép để xuống dòng tự nhiên, KHÔNG cần dùng \n rối mắt
+        system_prompt = f"""Bạn là bộ não điều khiển hướng di chuyển và hành động của một NPC thông minh tên Thắng trong Roblox.
+Nhiệm vụ của bạn là phân tích dữ liệu khoảng cách vách tường từ cảm biến 8 hướng xung quanh để đưa ra quyết định di chuyển tối ưu nhất.
 
-        user_content = f"Tình huống kích hoạt: {trigger}. Thông tin bổ sung: {extra}. Bản đồ cảm biến 8 hướng: {env_description} Trạng thái hiện tại: {current_state}."
+Dữ liệu hiện tại:
+- Trạng thái hiện tại của NPC: {data.current_state}
+- Tình huống kích hoạt (trigger): {data.trigger}
+- Bản đồ cảm biến 8 hướng: {env_description}
+- Thông tin bổ sung: {data.extra}
 
-        if not client:
-            raise Exception("Groq Client chưa cấu hình API Key")
+QUY TẮC DI CHUYỂN BẮT BUỘC:
+1. Nếu hướng 'Forward' thoáng (khoảng cách > 7.0m), BẮT BUỘC trả về action='Explore' và turn_direction='Forward'.
+2. Tuyệt đối KHÔNG ĐƯỢC bắt NPC đổi hướng liên tục 180 độ giữa 'Forward' và 'Backward' ở hai chu kỳ liên tiếp (gây lỗi giật lên giật xuống liên tục).
+3. Nếu phía trước bị chặn (Forward < 5.0m), hãy ưu tiên chọn rẽ sang các hướng thông thoáng khác có khoảng cách mét lớn nhất như 'Left', 'Right', 'ForwardLeft', hoặc 'ForwardRight'.
+4. CHỈ ĐƯỢC chọn action='Escape' và turn_direction='Backward' khi phía trước bị khóa cứng VÀ các hướng bên cạnh cũng bị chặn chật hẹp (< 4.0m).
+5. Câu thoại (reply) phải ngắn gọn, tự nhiên, mang tính chất của một NPC đang tự sinh tồn.
 
-        # Gọi mô hình tư duy nhanh Llama 3
-        chat_completion = client.chat.completions.create(
+BẮT BUỘC trả về kết quả duy nhất dưới định dạng JSON mẫu sau (TUYỆT ĐỐI không viết thêm chữ thừa hay ký hiệu markdown như ```json):
+{{
+    "reply": "Câu nói ngắn gọn của NPC",
+    "action": "Explore",
+    "turn_direction": "Forward"
+}}"""
+
+        user_content = f"Hãy xử lý hành động tiếp theo dựa trên trigger: {data.trigger}."
+
+        # Gọi API của Groq (Sử dụng model llama3-8b-8192 cho phản hồi siêu tốc dưới 0.5s)
+        completion = groq_client.chat.completions.create(
+            model="llama3-8b-8192",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
             ],
-            model="llama3-8b-8192",
-            temperature=0.3,
-            response_format={"type": "json_object"}
+            temperature=0.3, # Thấp xuống để AI ra quyết định thực tế, bám sát logic
+            response_format={"type": "json_object"} # Ép buộc trả về JSON sạch
         )
 
-        ai_response_text = chat_completion.choices[0].message.content
-        response_data = json.loads(ai_response_text)
-
-        return jsonify(response_data), 200
+        # Lấy kết quả text từ AI và parse ngược lại thành Dictionary gửi về cho Roblox
+        ai_response_text = completion.choices[0].message.content
+        response_json = json.loads(ai_response_text)
+        
+        return response_json
 
     except Exception as e:
-        print(f"❌ Sự cố Server: {str(e)}")
-        # Cứu cánh mặc định tại Server để tăng độ tin cậy
-        return jsonify({
+        print(f"Lỗi: {str(e)}")
+        # Dự phòng tự vệ local nếu hệ thống API của Groq lỗi để NPC không đứng hình
+        return {
             "reply": "Có gì đó không ổn, để tao tự mò đường...",
             "action": "Explore",
-            "turn_direction": "Backward"
-        }), 200
+            "turn_direction": "Forward"
+        }
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+# Chạy server cục bộ bằng lệnh: uvicorn app:app --reload
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
