@@ -29,9 +29,9 @@ class NPCData(BaseModel):
     extra: str = ""
 
 # =================================================================
-# 🔥 ENDPOINT PING: Vào trình duyệt gõ https://npc-thang-1.onrender.com/ping
+# 🔥 FIX LỖI 405: CHO PHÉP NHẬN CẢ LỆNH HEAD CỦA UPTIMEROBOT MIỄN PHÍ
 # =================================================================
-@app.get("/ping")
+@app.route("/ping", methods=["GET", "HEAD"])
 async def ping():
     return {
         "status": "ok",
@@ -58,6 +58,7 @@ async def npc_control(data: NPCData):
         )
 
         # PROMPT CHUẨN: Sử dụng dấu 3 nháy kép để xuống dòng tự nhiên, KHÔNG cần dùng \n rối mắt
+        # Sử dụng model llama-3.1-8b-instant mới nhất chống lỗi model_decommissioned (400)
         system_prompt = f"""Bạn là bộ não điều khiển hướng di chuyển và hành động của một NPC thông minh tên Thắng trong Roblox.
 Nhiệm vụ của bạn là phân tích dữ liệu khoảng cách vách tường từ cảm biến 8 hướng xung quanh để đưa ra quyết định di chuyển tối ưu nhất.
 
@@ -83,15 +84,15 @@ BẮT BUỘC trả về kết quả duy nhất dưới định dạng JSON mẫu
 
         user_content = f"Hãy xử lý hành động tiếp theo dựa trên trigger: {data.trigger}."
 
-        # Gọi API của Groq (Sử dụng model llama3-8b-8192 cho phản hồi siêu tốc dưới 0.5s)
+        # Gọi API của Groq (Dùng Llama 3.1 mượt mà ổn định)
         completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.1-8b-instant",  
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
             ],
-            temperature=0.3, # Thấp xuống để AI ra quyết định thực tế, bám sát logic
-            response_format={"type": "json_object"} # Ép buộc trả về JSON sạch
+            temperature=0.3, 
+            response_format={"type": "json_object"} 
         )
 
         # Lấy kết quả text từ AI và parse ngược lại thành Dictionary gửi về cho Roblox
