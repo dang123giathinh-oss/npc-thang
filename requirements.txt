@@ -1,5 +1,4 @@
-flask
+fastapi
+uvicorn
 groq
-python-dotenv
-Flask-CORS
-gunicorn
+pydantic
