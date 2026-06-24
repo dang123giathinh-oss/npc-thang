@@ -29,9 +29,10 @@ class NPCData(BaseModel):
     extra: str = ""
 
 # =================================================================
-# 🔥 FIX LỖI 405: CHO PHÉP NHẬN CẢ LỆNH HEAD CỦA UPTIMEROBOT MIỄN PHÍ
+# 🔥 FIX LỖI SẬP STATUS 1 VÀ LỖI 405 CHO UPTIMEROBOT
+# Dùng api_route chấp nhận cả lệnh HEAD của UptimeRobot và GET của trình duyệt
 # =================================================================
-@app.route("/ping", methods=["GET", "HEAD"])
+@app.api_route("/ping", methods=["GET", "HEAD"])
 async def ping():
     return {
         "status": "ok",
