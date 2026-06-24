@@ -85,7 +85,7 @@ BẮT BUỘC trả về kết quả duy nhất dưới định dạng JSON mẫu
 
         # Gọi API của Groq (Sử dụng model llama3-8b-8192 cho phản hồi siêu tốc dưới 0.5s)
         completion = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
