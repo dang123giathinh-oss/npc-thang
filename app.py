@@ -96,9 +96,9 @@ BẮT BUỘC trả về kết quả duy nhất dưới định dạng JSON mẫu
 
         # Lấy kết quả text từ AI và parse ngược lại thành Dictionary gửi về cho Roblox
         ai_response_text = completion.choices[0].message.content
-        response_json = json.loads(ai_response_text)
+        response_data = json.loads(ai_response_text)
         
-        return response_json
+        return response_data
 
     except Exception as e:
         print(f"Lỗi: {str(e)}")
