@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from groq import AsyncGroq
 
-app = FastAPI(title="Bộ não NPC Thăng - FastAPI")
+app = FastAPI(title="Bộ não NPC Thăng - FastAPI Chẩn Đoán")
 
 # Khởi tạo Async Groq Client
 # Hãy chắc chắn bạn đã cấu hình GROQ_API_KEY trong Environment Variables trên Render
@@ -58,14 +58,14 @@ Bạn KHÔNG ĐƯỢC giải thích, KHÔNG ĐƯỢC viết chữ dài dòng bê
 """
 
 # -------------------------------------------------------------
-# CỔNG DÀNH RIÊNG CHO UPTIMEROBOT (Sửa dứt điểm lỗi 405 Method Not Allowed)
+# CỔNG DÀNH RIÊNG CHO UPTIMEROBOT
 # -------------------------------------------------------------
 @app.api_route("/ping", methods=["GET", "HEAD", "POST"])
 async def uptime_ping():
     return {"status": "healthy", "message": "Thăng đang thức và sẵn sàng!"}
 
 
-# CỔNG KẾT NỐI CHÍNH VỚI ROBLOX STUDIO (Sử dụng Async)
+# CỔNG KẾT NỐI CHÍNH VỚI ROBLOX STUDIO (Bản chẩn đoán lỗi trực tiếp)
 @app.post("/api/npc")
 async def npc_thang_endpoint(data: RobloxData):
     try:
@@ -80,7 +80,7 @@ async def npc_thang_endpoint(data: RobloxData):
         if user_id not in bo_nho:
             bo_nho[user_id] = []
 
-        context_prompt = f"Người chơi {user_name} vừa nói: '{message}' ở khoảng cách {distance} studs. Thời gian trong game là {game_time}. Dựa vào lịch sử ký ức của bạn với người này, hãy đưa ra phản hồi hợp lý."
+        context_prompt = f"Người chơi {user_name} vừa nói: '{message}' ở khoảng cách {distance} studs. Thời gian trong game là {game_time}."
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         
@@ -108,7 +108,7 @@ async def npc_thang_endpoint(data: RobloxData):
             "thang": ai_json.get("reply", "")
         })
         if len(bo_nho[user_id]) > 20:
-            bo_nho[user_id].pop(0) # Cơ chế tự động quên các thông tin quá cũ giống người
+            bo_nho[user_id].pop(0)
             
         # Ghi file bất đồng bộ
         await asyncio.to_thread(luu_bo_nho, bo_nho)
@@ -116,18 +116,19 @@ async def npc_thang_endpoint(data: RobloxData):
         return JSONResponse(content=ai_json)
 
     except Exception as e:
-        print(f"Lỗi hệ thống bộ não Thăng: {e}")
+        # Bóc tách lỗi chi tiết của hệ thống hoặc lỗi trả về từ Groq
+        loi_he_thong = str(e)
         return JSONResponse(
             content={
-                "reply": "Đầu mình hơi đau một chút, vừa rồi bạn nói gì cơ?",
+                "reply": f"LỖI HỆ THỐNG: {loi_he_thong}",
                 "action": "DUNG_YEN"
             },
-            status_code=200 # Trả về 200 để tránh làm HttpService của Roblox bị ngắt quãng
+            status_code=200
         )
 
 @app.get("/")
 async def index():
-    return {"message": "Bộ não của NPC Thăng bằng FastAPI đang hoạt động hoàn hảo!"}
+    return {"message": "Bộ não của NPC Thăng bằng FastAPI đang online!"}
 
 if __name__ == '__main__':
     import uvicorn
