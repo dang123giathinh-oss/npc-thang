@@ -1,16 +1,28 @@
 import os
 import json
-from flask import Flask, request, jsonify
-from groq import Groq
+import asyncio
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from groq import AsyncGroq # Sử dụng bản Async của Groq để tối ưu tốc độ
 
-app = Flask(__name__)
+app = FastAPI(title="Bộ não NPC Thăng - FastAPI")
 
-# Khởi tạo Groq Client (Lấy API Key từ Environment Variable của Render)
-groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+# Khởi tạo Async Groq Client
+# Nhớ thêm biến môi trường GROQ_API_KEY trên Render Dashboard nhé
+groq_client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY"))
 
 DB_FILE = "database.json"
 
-# Hàm đọc và ghi nhớ dữ liệu (Database bằng file JSON)
+# Định nghĩa cấu trúc dữ liệu nhận từ Roblox bằng Pydantic
+class RobloxData(BaseModel):
+    id_nguoi_dung: str
+    ten_nguoi_dung: str
+    tin_nhan: str
+    khoang_cach: int = 10
+    thoi_gian_game: str = "12:00"
+
+# Các hàm đọc/ghi dữ liệu đồng bộ được bọc lại để tránh chặn luồng (Non-blocking)
 def doc_bo_nho():
     if not os.path.exists(DB_FILE):
         return {}
@@ -48,27 +60,23 @@ Bạn KHÔNG ĐƯỢC giải thích, KHÔNG ĐƯỢC viết chữ dài dòng bê
 # -------------------------------------------------------------
 # CỔNG DÀNH RIÊNG CHO UPTIMEROBOT (Giữ server luôn thức 24/7)
 # -------------------------------------------------------------
-@app.route('/ping', methods=['GET'])
-def uptime_ping():
-    return jsonify({"status": "healthy", "message": "Thăng đang thức!"}), 200
+@app.get("/ping")
+async def uptime_ping():
+    return {"status": "healthy", "message": "Thăng đang thức!"}
 
 
-# CỔNG KẾT NỐI CHÍNH VỚI ROBLOX STUDIO
-@app.route('/api/npc', methods=['POST'])
-def npc_thang_endpoint():
+# CỔNG KẾT NỐI CHÍNH VỚI ROBLOX STUDIO (Sử dụng Async)
+@app.post("/api/npc")
+async def npc_thang_endpoint(data: RobloxData):
     try:
-        req_data = request.get_json()
-        if not req_data:
-            return jsonify({"reply": "Hửm? Mình chưa nghe rõ.", "action": "DUNG_YEN"}), 400
-            
-        user_id = req_data.get("id_nguoi_dung")
-        user_name = req_data.get("ten_nguoi_dung")
-        message = req_data.get("tin_nhan")
-        distance = req_data.get("khoang_cach", 10)
-        game_time = req_data.get("thoi_gian_game", "12:00")
+        user_id = data.id_nguoi_dung
+        user_name = data.ten_nguoi_dung
+        message = data.tin_nhan
+        distance = data.khoang_cach
+        game_time = data.thoi_gian_game
 
-        # Xử lý Trí nhớ ngắn/dài hạn
-        bo_nho = doc_bo_nho()
+        # Chạy tác vụ đọc file trong luồng riêng để không làm chậm server FastAPI
+        bo_nho = await asyncio.to_thread(doc_bo_nho)
         if user_id not in bo_nho:
             bo_nho[user_id] = []
 
@@ -83,8 +91,8 @@ def npc_thang_endpoint():
             
         messages.append({"role": "user", "content": context_prompt})
 
-        # Gọi Groq AI xử lý siêu tốc
-        completion = groq_client.chat.completions.create(
+        # Gọi Groq AI qua hàm Async siêu tốc
+        completion = await groq_client.chat.completions.create(
             model="llama3-8b-8192",
             messages=messages,
             response_format={"type": "json_object"},
@@ -94,30 +102,36 @@ def npc_thang_endpoint():
         ai_response_raw = completion.choices[0].message.content
         ai_json = json.loads(ai_response_raw)
 
-        # Cập nhật ký ức mới vào database
+        # Cập nhật ký ức mới
         bo_nho[user_id].append({
             "user": message,
             "thang": ai_json.get("reply", "")
         })
         if len(bo_nho[user_id]) > 20:
-            bo_nho[user_id].pop(0) # Tự động quên chuyện quá cũ
+            bo_nho[user_id].pop(0)
             
-        luu_bo_nho(bo_nho)
+        # Ghi file bất đồng bộ
+        await asyncio.to_thread(luu_bo_nho, bo_nho)
 
-        return jsonify(ai_json)
+        return JSONResponse(content=ai_json)
 
     except Exception as e:
         print(f"Lỗi hệ thống bộ não Thăng: {e}")
-        return jsonify({
-            "reply": "Đầu mình hơi đau một chút, vừa rồi bạn nói gì cơ?",
-            "action": "DUNG_YEN"
-        }), 500
+        return JSONResponse(
+            content={
+                "reply": "Đầu mình hơi đau một chút, vừa rồi bạn nói gì cơ?",
+                "action": "DUNG_YEN"
+            },
+            status_code=200 # Trả về 200 để Roblox không bị lỗi HttpService
+        )
 
-@app.route('/', methods=['GET'])
-def index():
-    return "Bộ não của NPC Thăng đang online!", 200
+@app.get("/")
+async def index():
+    return {"message": "Bộ não của NPC Thăng bằng FastAPI đang online!"}
 
 if __name__ == '__main__':
+    import uvicorn
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    # Chạy uvicorn server phù hợp với môi trường Render
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
 
