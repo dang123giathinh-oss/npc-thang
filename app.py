@@ -93,7 +93,7 @@ async def npc_thang_endpoint(data: RobloxData):
 
         # Gọi Groq AI qua hàm Async siêu tốc
         completion = await groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0.8
