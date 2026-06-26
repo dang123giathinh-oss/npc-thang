@@ -4,12 +4,12 @@ import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from groq import AsyncGroq # Sử dụng bản Async của Groq để tối ưu tốc độ
+from groq import AsyncGroq
 
 app = FastAPI(title="Bộ não NPC Thăng - FastAPI")
 
 # Khởi tạo Async Groq Client
-# Nhớ thêm biến môi trường GROQ_API_KEY trên Render Dashboard nhé
+# Hãy chắc chắn bạn đã cấu hình GROQ_API_KEY trong Environment Variables trên Render
 groq_client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY"))
 
 DB_FILE = "database.json"
@@ -22,7 +22,7 @@ class RobloxData(BaseModel):
     khoang_cach: int = 10
     thoi_gian_game: str = "12:00"
 
-# Các hàm đọc/ghi dữ liệu đồng bộ được bọc lại để tránh chặn luồng (Non-blocking)
+# Các hàm đọc/ghi dữ liệu đồng bộ được chạy tách luồng để tối ưu hiệu năng
 def doc_bo_nho():
     if not os.path.exists(DB_FILE):
         return {}
@@ -58,11 +58,11 @@ Bạn KHÔNG ĐƯỢC giải thích, KHÔNG ĐƯỢC viết chữ dài dòng bê
 """
 
 # -------------------------------------------------------------
-# CỔNG DÀNH RIÊNG CHO UPTIMEROBOT (Giữ server luôn thức 24/7)
+# CỔNG DÀNH RIÊNG CHO UPTIMEROBOT (Sửa dứt điểm lỗi 405 Method Not Allowed)
 # -------------------------------------------------------------
-@app.get("/ping")
+@app.api_route("/ping", methods=["GET", "HEAD", "POST"])
 async def uptime_ping():
-    return {"status": "healthy", "message": "Thăng đang thức!"}
+    return {"status": "healthy", "message": "Thăng đang thức và sẵn sàng!"}
 
 
 # CỔNG KẾT NỐI CHÍNH VỚI ROBLOX STUDIO (Sử dụng Async)
@@ -75,7 +75,7 @@ async def npc_thang_endpoint(data: RobloxData):
         distance = data.khoang_cach
         game_time = data.thoi_gian_game
 
-        # Chạy tác vụ đọc file trong luồng riêng để không làm chậm server FastAPI
+        # Chạy tác vụ đọc file trong luồng riêng (Non-blocking)
         bo_nho = await asyncio.to_thread(doc_bo_nho)
         if user_id not in bo_nho:
             bo_nho[user_id] = []
@@ -84,7 +84,7 @@ async def npc_thang_endpoint(data: RobloxData):
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         
-        # Nạp tối đa 6 câu thoại cũ để Thăng nhớ người quen
+        # Nạp tối đa 6 câu thoại cũ để giữ ngữ cảnh trí nhớ ngắn hạn/dài hạn
         for memory in bo_nho[user_id][-6:]:
             messages.append({"role": "user", "content": memory.get("user", "")})
             messages.append({"role": "assistant", "content": memory.get("thang", "")})
@@ -102,13 +102,13 @@ async def npc_thang_endpoint(data: RobloxData):
         ai_response_raw = completion.choices[0].message.content
         ai_json = json.loads(ai_response_raw)
 
-        # Cập nhật ký ức mới
+        # Cập nhật ký ức mới vào database JSON
         bo_nho[user_id].append({
             "user": message,
             "thang": ai_json.get("reply", "")
         })
         if len(bo_nho[user_id]) > 20:
-            bo_nho[user_id].pop(0)
+            bo_nho[user_id].pop(0) # Cơ chế tự động quên các thông tin quá cũ giống người
             
         # Ghi file bất đồng bộ
         await asyncio.to_thread(luu_bo_nho, bo_nho)
@@ -122,16 +122,14 @@ async def npc_thang_endpoint(data: RobloxData):
                 "reply": "Đầu mình hơi đau một chút, vừa rồi bạn nói gì cơ?",
                 "action": "DUNG_YEN"
             },
-            status_code=200 # Trả về 200 để Roblox không bị lỗi HttpService
+            status_code=200 # Trả về 200 để tránh làm HttpService của Roblox bị ngắt quãng
         )
 
 @app.get("/")
 async def index():
-    return {"message": "Bộ não của NPC Thăng bằng FastAPI đang online!"}
+    return {"message": "Bộ não của NPC Thăng bằng FastAPI đang hoạt động hoàn hảo!"}
 
 if __name__ == '__main__':
     import uvicorn
     port = int(os.environ.get("PORT", 5000))
-    # Chạy uvicorn server phù hợp với môi trường Render
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
-
