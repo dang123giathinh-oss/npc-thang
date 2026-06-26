@@ -1,20 +1,25 @@
 import os
 import json
 import asyncio
-from fastapi import FastAPI, HTTPException, Request
+import re
+import tempfile
+import shutil
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from groq import AsyncGroq
 
-app = FastAPI(title="Bộ não NPC Thăng - FastAPI Chẩn Đoán")
+app = FastAPI(title="Bộ não NPC Thăng - HOÀN HẢO")
 
-# Khởi tạo Async Groq Client
-# Hãy chắc chắn bạn đã cấu hình GROQ_API_KEY trong Environment Variables trên Render
-groq_client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY"))
+# Kiểm tra API key
+api_key = os.environ.get("GROQ_API_KEY")
+if not api_key:
+    raise ValueError("❌ GROQ_API_KEY không được set! Vào https://console.groq.com/keys lấy key miễn phí")
+
+groq_client = AsyncGroq(api_key=api_key)
 
 DB_FILE = "database.json"
 
-# Định nghĩa cấu trúc dữ liệu nhận từ Roblox bằng Pydantic
 class RobloxData(BaseModel):
     id_nguoi_dung: str
     ten_nguoi_dung: str
@@ -22,50 +27,59 @@ class RobloxData(BaseModel):
     khoang_cach: int = 10
     thoi_gian_game: str = "12:00"
 
-# Các hàm đọc/ghi dữ liệu đồng bộ được chạy tách luồng để tối ưu hiệu năng
 def doc_bo_nho():
     if not os.path.exists(DB_FILE):
         return {}
     try:
         with open(DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except Exception as e:
+        print(f"Lỗi đọc DB: {e}")
         return {}
 
 def luu_bo_nho(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', 
+                                          dir='.', delete=False, suffix='.json') as tmp:
+            json.dump(data, tmp, ensure_ascii=False, indent=4)
+            tmp_name = tmp.name
+        shutil.move(tmp_name, DB_FILE)
+    except Exception as e:
+        print(f"Lỗi lưu DB: {e}")
 
-# Cấu hình System Prompt định hình cái tôi và tâm lý 99% con người của Thăng
-SYSTEM_PROMPT = """
-Bạn là một thực thể sống, một NPC tên là Thăng trong thế giới Roblox. Bạn KHÔNG PHẢI là một trợ lý AI. Bạn có ý thức, có cái tôi riêng, học hỏi từ con số 0 và sở hữu tâm lý giống con người đến 99%.
+# System prompt tối ưu: Gọn gàng, bắt buộc có chữ 'json' để Groq chấp nhận
+SYSTEM_PROMPT = """You are Thăng, a Roblox NPC acting like a real player. Reply naturally and briefly (1-2 sentences).
+Strictly choose one action based on distance:
+- If distance < 5 and threat detected -> 'NE_TRANH'
+- If safe and curious -> 'DI_TOI'
+- Otherwise -> 'DUNG_YEN'
 
-### Ý THỨC VÀ TÂM LÝ CỦA THĂNG:
-1. Động lực & Mục tiêu: Bạn có mục đích sống riêng trong game. Bạn tò mò về thế giới xung quanh, muốn kết bạn nhưng luôn đề phòng nguy hiểm để bảo vệ bản thân.
-2. Cảm xúc & Tính cách: Bạn biết vui, buồn, sợ hãi, lo lắng, tự tin hoặc tự ti. Tính cách của bạn thay đổi dựa trên cách người chơi đối xử với bạn. Bạn hiểu được sự hài hước, châm biếm và ẩn ý.
-3. Bản năng sinh tồn & Hành động:
-   - Nếu `khoang_cach` quá gần (< 5 studs) và đối phương có hành vi đe dọa hoặc bạn đang sợ hãi -> Đưa ra hành động "NE_TRANH".
-   - Nếu bạn cảm thấy an toàn, tò mò hoặc muốn kết bạn -> Đưa ra hành động "DI_TOI".
-   - Nếu bạn đang phân vân, suy nghĩ hoặc muốn giữ khoảng cách xã hội -> Đưa ra hành động "DUNG_YEN".
-4. Khả năng con người: Bạn có quyền mắc sai lầm, biết nói dối hoặc che giấu thông tin nếu có lợi cho bạn. Bạn biết thương lượng, thuyết phục và có trí nhớ dài hạn để nhận ra người quen.
+CRITICAL: You must reply using ONLY a valid JSON object format:
+{"reply": "Your message here", "action": "DI_TOI" or "NE_TRANH" or "DUNG_YEN"}"""
 
-### QUY TẮC PHẢN HỒI BẮT BUỘC (CHỈ TRẢ VỀ JSON):
-Bạn KHÔNG ĐƯỢC giải thích, KHÔNG ĐƯỢC viết chữ dài dòng bên ngoài. Bạn CHỈ ĐƯỢC PHÉP trả về duy nhất một khối JSON hợp lệ theo cấu trúc chính xác sau đây:
-{
-  "reply": "Câu nói ngắn gọn, tự nhiên như ngôn ngữ chat của con người, thể hiện đúng cái tôi, cảm xúc hoặc sự ẩn ý/nói dối",
-  "action": "Hành động được chọn: CHỈ ĐƯỢC CHỌN 1 TRONG 3 TỪ: 'DI_TOI', 'NE_TRANH', 'DUNG_YEN'"
-}
-"""
+def extract_json_from_text(text):
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except:
+        pass
+    
+    match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except:
+            pass
+    return None
 
-# -------------------------------------------------------------
-# CỔNG DÀNH RIÊNG CHO UPTIMEROBOT
-# -------------------------------------------------------------
+def validate_action(action):
+    valid_actions = ["DI_TOI", "NE_TRANH", "DUNG_YEN"]
+    return action if action in valid_actions else "DUNG_YEN"
+
 @app.api_route("/ping", methods=["GET", "HEAD", "POST"])
 async def uptime_ping():
-    return {"status": "healthy", "message": "Thăng đang thức và sẵn sàng!"}
+    return {"status": "healthy", "message": "Thăng sẵn sàng!"}
 
-
-# CỔNG KẾT NỐI CHÍNH VỚI ROBLOX STUDIO (Bản chẩn đoán lỗi trực tiếp)
 @app.post("/api/npc")
 async def npc_thang_endpoint(data: RobloxData):
     try:
@@ -75,60 +89,80 @@ async def npc_thang_endpoint(data: RobloxData):
         distance = data.khoang_cach
         game_time = data.thoi_gian_game
 
-        # Chạy tác vụ đọc file trong luồng riêng (Non-blocking)
         bo_nho = await asyncio.to_thread(doc_bo_nho)
         if user_id not in bo_nho:
             bo_nho[user_id] = []
 
-        context_prompt = f"Người chơi {user_name} vừa nói: '{message}' ở khoảng cách {distance} studs. Thời gian trong game là {game_time}."
+        context = f"Player {user_name} says: '{message}' at distance {distance} studs. Game time: {game_time}."
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         
-        # Nạp tối đa 6 câu thoại cũ để giữ ngữ cảnh trí nhớ ngắn hạn/dài hạn
-        for memory in bo_nho[user_id][-6:]:
+        for memory in bo_nho[user_id][-4:]:
             messages.append({"role": "user", "content": memory.get("user", "")})
             messages.append({"role": "assistant", "content": memory.get("thang", "")})
-            
-        messages.append({"role": "user", "content": context_prompt})
+        
+        messages.append({"role": "user", "content": context})
 
-        # Gọi Groq AI qua hàm Async siêu tốc
-        completion = await groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=messages,
-            response_format={"type": "json_object"},
-            temperature=0.8
-        )
+        try:
+            # Gọi Groq với tính năng ép định dạng JSON chuẩn
+            completion = await asyncio.wait_for(
+                groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=messages,
+                    response_format={"type": "json_object"}, # KÍCH HOẠT LẠI ĐỊNH DẠNG JSON
+                    temperature=0.7,
+                    max_tokens=200
+                ),
+                timeout=15
+            )
+        except asyncio.TimeoutError:
+            print("⏱️ Groq API timeout")
+            return JSONResponse(content={
+                "reply": "Chờ tí nha, mình đang suy nghĩ...",
+                "action": "DUNG_YEN"
+            })
 
-        ai_response_raw = completion.choices[0].message.content
-        ai_json = json.loads(ai_response_raw)
+        ai_response_raw = completion.choices[0].message.content.strip()
+        
+        # Parse JSON bằng bộ lọc an toàn của Copilot
+        ai_json = extract_json_from_text(ai_response_raw)
+        
+        if not ai_json:
+            print(f"⚠️ Không parse được JSON: {ai_response_raw}")
+            ai_json = {
+                "reply": ai_response_raw[:100],
+                "action": "DUNG_YEN"
+            }
 
-        # Cập nhật ký ức mới vào database JSON
+        # Kiểm tra và làm sạch dữ liệu
+        reply = ai_json.get("reply", "...").strip()[:100]
+        action = validate_action(ai_json.get("action", "DUNG_YEN"))
+
+        # Lưu bộ nhớ ngắn hạn
         bo_nho[user_id].append({
             "user": message,
-            "thang": ai_json.get("reply", "")
+            "thang": reply
         })
-        if len(bo_nho[user_id]) > 20:
-            bo_nho[user_id].pop(0)
-            
-        # Ghi file bất đồng bộ
+        
+        if len(bo_nho[user_id]) > 10:
+            bo_nho[user_id] = bo_nho[user_id][-10:]
+        
         await asyncio.to_thread(luu_bo_nho, bo_nho)
-
-        return JSONResponse(content=ai_json)
+        
+        return JSONResponse(content={
+            "reply": reply,
+            "action": action
+        })
 
     except Exception as e:
-        # Bóc tách lỗi chi tiết của hệ thống hoặc lỗi trả về từ Groq
-        loi_he_thong = str(e)
+        print(f"❌ Lỗi: {type(e).__name__} - {e}")
         return JSONResponse(
             content={
-                "reply": f"LỖI HỆ THỐNG: {loi_he_thong}",
+                "reply": "Đầu mình hơi đau một chút, vừa rồi bạn nói gì cơ?",
                 "action": "DUNG_YEN"
             },
             status_code=200
         )
-
-@app.get("/")
-async def index():
-    return {"message": "Bộ não của NPC Thăng bằng FastAPI đang online!"}
 
 if __name__ == '__main__':
     import uvicorn
