@@ -1,83 +1,82 @@
 import os
 import json
+import asyncio
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from groq import AsyncGroq
-import asyncio
 
 app = FastAPI()
 
-# Khởi tạo Groq
+# ================= KHỞI TẠO GROQ =================
 api_key = os.environ.get("GROQ_API_KEY")
 if not api_key:
     raise ValueError("Thiếu GROQ_API_KEY")
 client = AsyncGroq(api_key=api_key)
 
-DB_FILE = "memory.json"
+# ================= MODEL DỮ LIỆU =================
+class ChatRequest(BaseModel):
+    id_nguoi_dung: str
+    ten_nguoi_dung: str
+    tin_nhan: str
+    khoang_cach: float = 0.0
+    thoi_gian_game: str = "Unknown"
+    lich_su: list = []  # Mảng các {"role": "user", "content": "..."}
 
-class Request(BaseModel):
-    user_id: str
-    user_name: str
-    message: str
+# ================= SYSTEM PROMPT =================
+SYSTEM_TEMPLATE = """Bạn là Thăng, một NPC trong Roblox. Tính cách: thân thiện, hài hước, thích giúp đỡ.
+Người chơi đứng cách {khoang_cach}m. Thời gian game: {thoi_gian_game}.
+Hãy trả lời tự nhiên, ngắn gọn (1-2 câu). Trả về JSON có key "reply"."""
 
-# System prompt đơn giản, rõ ràng
-SYSTEM = """Bạn là Thăng, NPC trong Roblox. Hãy trả lời tự nhiên, ngắn gọn (1-2 câu).
-Chọn một hành động: DI_TOI, NE_TRANH, hoặc DUNG_YEN.
-Trả về JSON: {"reply": "...", "action": "..."}"""
-
-def load_memory():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
-
-def save_memory(data):
-    with open(DB_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-@app.get("/ping")
-async def ping():
+# ================= ROUTE GET – CHO UPTIMEROBOT =================
+@app.get("/api/npc")
+async def health_check():
     return {"status": "ok"}
 
+# ================= ROUTE POST CHÍNH =================
 @app.post("/api/npc")
-async def npc(data: Request):
-    memory = load_memory()
-    uid = data.user_id
-    if uid not in memory:
-        memory[uid] = []
+async def chat_with_thang(data: ChatRequest):
+    # Tạo system prompt động
+    system_msg = SYSTEM_TEMPLATE.format(
+        khoang_cach=data.khoang_cach,
+        thoi_gian_game=data.thoi_gian_game
+    )
+    messages = [{"role": "system", "content": system_msg}]
 
-    # Xây dựng lịch sử hội thoại
-    messages = [{"role": "system", "content": SYSTEM}]
-    for m in memory[uid][-6:]:  # chỉ lấy 6 tin cuối
-        messages.append({"role": "user", "content": m["user"]})
-        messages.append({"role": "assistant", "content": m["assistant"]})
-    messages.append({"role": "user", "content": data.message})
+    # Gắn lịch sử hội thoại (tối đa 10 cặp để tiết kiệm token)
+    for entry in data.lich_su[-10:]:
+        messages.append(entry)
+    messages.append({"role": "user", "content": data.tin_nhan})
 
-    try:
-        res = await client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=messages,
-            response_format={"type": "json_object"},
-            temperature=0.8,
-            max_tokens=100
-        )
-        result = json.loads(res.choices[0].message.content)
-    except Exception as e:
-        print("Lỗi:", e)
-        result = {"reply": "Mình chưa hiểu lắm.", "action": "DUNG_YEN"}
+    reply = "Mình chưa hiểu lắm..."
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            res = await client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=messages,
+                response_format={"type": "json_object"},
+                temperature=0.9,
+                max_tokens=150,
+                timeout=10
+            )
+            content = res.choices[0].message.content
+            try:
+                result = json.loads(content)
+                reply = result.get("reply", reply)[:200]
+            except:
+                reply = content.strip()[:200]
+            break
+        except asyncio.TimeoutError:
+            if attempt == max_retries:
+                reply = "Xin lỗi, tôi đang lag..."
+        except Exception as e:
+            print(f"Groq error: {e}")
+            if attempt == max_retries:
+                reply = "Xin lỗi, tôi bị lỗi mạng."
+            await asyncio.sleep(1)
 
-    reply = result.get("reply", "Ừ?")[:120]
-    action = result.get("action", "DUNG_YEN")
-    if action not in ["DI_TOI", "NE_TRANH", "DUNG_YEN"]:
-        action = "DUNG_YEN"
-
-    # Lưu bộ nhớ
-    memory[uid].append({"user": data.message, "assistant": reply})
-    if len(memory[uid]) > 20:
-        memory[uid] = memory[uid][-20:]
-    save_memory(memory)
-
-    return {"reply": reply, "action": action}
+    return {"reply": reply}
 
 if __name__ == "__main__":
     import uvicorn
