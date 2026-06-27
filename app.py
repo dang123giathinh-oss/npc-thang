@@ -21,17 +21,25 @@ class ChatRequest(BaseModel):
     tin_nhan: str
     khoang_cach: float = 0.0
     thoi_gian_game: str = "Unknown"
-    lich_su: list = []  # Mảng các {"role": "user", "content": "..."}
+    lich_su: list = []   # Mảng các {"role": "user"/"assistant", "content": "..."}
 
 # ================= SYSTEM PROMPT =================
-SYSTEM_TEMPLATE = """Bạn là Thăng, một NPC trong Roblox. Tính cách: thân thiện, hài hước, thích giúp đỡ.
-Người chơi đứng cách {khoang_cach}m. Thời gian game: {thoi_gian_game}.
-Hãy trả lời tự nhiên, ngắn gọn (1-2 câu). Trả về JSON có key "reply"."""
+SYSTEM_TEMPLATE = """Bạn là Thăng, NPC trong Roblox. Tính cách thân thiện, hài hước.
+Người chơi đứng cách {khoang_cach}m. Thời gian game (phút): {thoi_gian_game}.
+Hãy trả lời tự nhiên, ngắn gọn (1-2 câu), bằng JSON có key "reply"."""
 
-# ================= ROUTE GET – CHO UPTIMEROBOT =================
+# ================= ROUTE GET - DÙNG CHO UPTIMEROBOT =================
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "Server is running"}
+
+@app.get("/ping")
+async def ping():
+    return {"status": "ok"}
+
 @app.get("/api/npc")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "message": "NPC Thang endpoint"}
 
 # ================= ROUTE POST CHÍNH =================
 @app.post("/api/npc")
@@ -43,7 +51,7 @@ async def chat_with_thang(data: ChatRequest):
     )
     messages = [{"role": "system", "content": system_msg}]
 
-    # Gắn lịch sử hội thoại (tối đa 10 cặp để tiết kiệm token)
+    # Thêm lịch sử chat (tối đa 10 cặp gần nhất)
     for entry in data.lich_su[-10:]:
         messages.append(entry)
     messages.append({"role": "user", "content": data.tin_nhan})
